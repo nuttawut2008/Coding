@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>AIR HERO Simulator</title>
+<link href="https://fonts.googleapis.com/css2?family=Prompt:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#f3f5f4;--fg:#1d2624;--mut:#5f6d69;--card:#fff;--line:#d3dcd8;--acc:#0f8f7a;--warn:#c4571f;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#101615;--fg:#e6efec;--mut:#92a39e;--card:#18211f;--line:#2b3936;--acc:#3ed1b4;--warn:#f0894f}}
+:root[data-theme="dark"]{--bg:#101615;--fg:#e6efec;--mut:#92a39e;--card:#18211f;--line:#2b3936;--acc:#3ed1b4;--warn:#f0894f}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:"Prompt","Noto Sans Thai",system-ui,sans-serif;line-height:1.55}
+main{max-width:1100px;margin:0 auto;padding:16px}
+h1{font-size:1.4rem;margin:0}h2{font-size:1rem;margin:0 0 8px}
+.sub{color:var(--mut);font-size:.9rem;margin:2px 0 12px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px;margin-top:12px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+.room{border-radius:10px;overflow:hidden;border:1px solid var(--line)}
+canvas{display:block;width:100%}
+#room{height:300px}#gr{height:170px}
+#oled{width:256px;height:128px;max-width:100%;image-rendering:pixelated;border:6px solid #222;border-radius:6px;background:#000}
+label{display:flex;justify-content:space-between;font-size:.88rem;margin-top:8px}
+input[type=range]{width:100%;accent-color:var(--acc)}
+button{font:inherit;font-size:.85rem;padding:6px 10px;margin:2px 4px 2px 0;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--fg);cursor:pointer}
+button[aria-pressed=true]{background:var(--acc);border-color:var(--acc);color:#04140f}
+button:focus-visible,input:focus-visible{outline:3px solid var(--acc);outline-offset:2px}
+.kv{display:flex;justify-content:space-between;border-bottom:1px dashed var(--line);padding:3px 0;font-size:.9rem}
+.kv b{font-weight:600}
+.big{font-size:2rem;font-weight:600;line-height:1.1}
+.pb{height:8px;background:var(--line);border-radius:4px;overflow:hidden;margin:2px 0 6px}.pb i{display:block;height:100%;background:var(--acc);width:0}
+.src{font-size:.85rem;display:grid;grid-template-columns:130px 1fr 38px;gap:6px;align-items:center}
+.small{font-size:.8rem;color:var(--mut)}
+</style>
+</head>
+<body>
+<main>
+<h1>AIR HERO — ระบบจำลองสถานีวัดฝุ่นและเครื่องฟอกอากาศอัจฉริยะ</h1>
+<p class="sub">จำลองตามเอกสาร: Köhler calibration, ICRP 66, WHO/PCD fan curve + EMA, Soft-Start/Warm-up, 5 โหมด, ประวัติ 60 นาที (เป็นการจำลอง ไม่ใช่เฟิร์มแวร์จริง)</p>
+
+<div class="room"><canvas id="room" role="img" aria-label="ห้องที่มีอนุภาคฝุ่นและเครื่องฟอกอากาศ"></canvas></div>
+
+<div class="grid">
+  <div class="card">
+    <h2>สภาพแวดล้อม (ป้อนเข้าเซนเซอร์)</h2>
+    <label for="ext"><span>ฝุ่นภายนอก PM2.5</span><span id="extv"></span></label>
+    <input id="ext" type="range" min="0" max="250" value="120">
+    <label for="rh"><span>ความชื้นสัมพัทธ์ RH</span><span id="rhv"></span></label>
+    <input id="rh" type="range" min="20" max="95" value="75">
+    <label for="spd"><span>ความเร็วเวลาจำลอง</span><span id="spdv"></span></label>
+    <input id="spd" type="range" min="1" max="30" value="6">
+    <div class="small" style="margin-top:8px">แหล่งกำเนิดฝุ่น (สถานการณ์จริง)</div>
+    <div id="srcBtns"></div>
+  </div>
+
+  <div class="card">
+    <h2>เครื่องฟอกอากาศ (Purifier Node)</h2>
+    <canvas id="oled" width="128" height="64" aria-label="จอ OLED จำลอง"></canvas>
+    <div style="margin-top:8px" id="modeBtns"></div>
+    <button id="rst">เปิดเครื่องใหม่ (Warm-up 12 วินาที)</button>
+    <button id="hepa">รีเซ็ตไส้กรอง HEPA</button>
+    <div class="kv"><span>เป้าหมายพัดลม</span><b id="ftg"></b></div>
+    <div class="kv"><span>ความเร็วจริง (S-Curve Ramp)</span><b id="fact"></b></div>
+    <div class="kv"><span>CADR ขณะนี้</span><b id="cadr"></b></div>
+    <div class="kv"><span>อายุไส้กรอง HEPA</span><b id="hl"></b></div>
+  </div>
+
+  <div class="card">
+    <h2>สถานีตรวจวัด (Sensor Station)</h2>
+    <div class="big"><span id="cal">0</span> <span class="small">µg/ลบ.ม. (ปรับเทียบ)</span></div>
+    <div class="kv"><span>ค่าดิบ PMS7003</span><b id="raw"></b></div>
+    <div class="kv"><span>ตัวคูณบวมน้ำ f(RH)</span><b id="fr"></b></div>
+    <div class="kv"><span>AQI / ระดับ</span><b id="aqi"></b></div>
+    <div class="kv"><span>แนวโน้ม +30 / +60 นาที</span><b id="fc"></b></div>
+    <div class="kv"><span>อัตราเปลี่ยน</span><b id="rate"></b></div>
+    <div class="kv"><span>ถุงลมปอด (Alveolar) ต่อชม. / 24 ชม.</span><b id="dose"></b></div>
+    <div class="kv"><span>เทียบบุหรี่ / 24 ชม.</span><b id="cig"></b></div>
+    <div class="kv"><span>ขนกวัด Mucociliary</span><b id="muc"></b></div>
+  </div>
+
+  <div class="card">
+    <h2>AI จำแนกแหล่งกำเนิด (Softmax)</h2>
+    <div id="fp"></div>
+    <div class="small">ใช้สัดส่วน R1 = PM1/PM2.5, R2 = PM2.5/PM10, ก๊าซ และ RH</div>
+  </div>
+</div>
+
+<div class="card" style="margin-top:12px">
+  <h2>กราฟ PM2.5 ย้อนหลัง 60 นาที (1 จุด = 1 นาทีจำลอง)</h2>
+  <canvas id="gr" role="img" aria-label="กราฟแนวโน้ม PM2.5"></canvas>
+  <div class="small" id="gst"></div>
+</div>
+<p class="small">สูตรหลัก: f(RH)=1+0.28·[(RH/100)/(1.001−RH/100)]^0.65, PM_cal=PM_raw/f(RH), Dose=PM_cal·F_AL·V_E (F_AL=0.41, V_E=0.6 ลบ.ม./ชม.), บุหรี่=PM/22 — ห้องจำลองปริมาตร 60 ลบ.ม., CADR สูงสุด 400 ลบ.ม./ชม.</p>
+</main>
+
+<script>
+(function(){
+var $=function(i){return document.getElementById(i)};
+var SRC=[['🚗 ไอเสียรถ/จราจร',.78,.65,60],['🌾 เผาชีวมวล/ไฟป่า',.6,.65,140],['🏗️ ฝุ่นดิน/ก่อสร้าง',.5,.35,30],['🍳 ควันครัว',.7,.6,110],['🚬 บุหรี่/บุหรี่ไฟฟ้า',.88,.6,50],['🍃 อากาศสะอาด',.55,.5,25]];
+var srcI=1,mode='AUTO',turboT=0;
+var S={C:120,ema:120,fan:10,warm:12,acc:0,hist:[],hepaH:0,dose24:0,est:120,rate:0,t:0,rawP:0};
+var MODES=[['AUTO','🤖 AUTO'],['SLEEP','🌙 SLEEP'],['MED','💨 MED 50%'],['HIGH','🌪️ HIGH 75%'],['TURBO','⚡ TURBO']];
+var PTS=[[0,10],[9,15],[25,28],[37.5,50],[50,72],[75,88],[120,100]];
+var reduce=matchMedia&&matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+function f(rh){var x=rh/100;return 1+.28*Math.pow(x/(1.001-x),.65)}
+function curve(p){if(p>=120)return 100;for(var i=1;i<PTS.length;i++){if(p<=PTS[i][0]){var a=PTS[i-1],b=PTS[i];return a[1]+(b[1]-a[1])*(p-a[0])/(b[0]-a[0])}}return 100}
+function cat(v){if(v<=15)return['#3db4e8','ดีมาก'];if(v<=25)return['#4cbf6b','ดี'];if(v<=37.5)return['#e8c93d','ปานกลาง'];if(v<=75)return['#f08a2c','เริ่มมีผลต่อสุขภาพ'];return['#e0412f','มีผลต่อสุขภาพ']}
+function aqi(v){var t=[[0,15,0,25],[15,25,26,50],[25,37.5,51,100],[37.5,75,101,200],[75,200,201,300]];for(var i=0;i<t.length;i++){var r=t[i];if(v<=r[1]||i==4)return Math.round(r[2]+(r[3]-r[2])*Math.min(1,(v-r[0])/(r[1]-r[0])))}}
+
+// UI build
+SRC.forEach(function(s,i){var b=document.createElement('button');b.textContent=s[0];b.setAttribute('aria-pressed',i==srcI);b.onclick=function(){srcI=i;[].forEach.call($('srcBtns').children,function(c,j){c.setAttribute('aria-pressed',j==i)})};$('srcBtns').appendChild(b)});
+MODES.forEach(function(m){var b=document.createElement('button');b.textContent=m[1];b.id='m_'+m[0];b.setAttribute('aria-pressed',m[0]==mode);b.onclick=function(){setMode(m[0])};$('modeBtns').appendChild(b)});
+function setMode(m){mode=m;turboT=0;MODES.forEach(function(x){$('m_'+x[0]).setAttribute('aria-pressed',x[0]==m)})}
+$('rst').onclick=function(){S.warm=12;S.fan=10};
+$('hepa').onclick=function(){S.hepaH=0};
+var fpRows=[];SRC.forEach(function(s){var d=document.createElement('div');d.className='src';d.innerHTML='<span>'+s[0]+'</span><div class="pb"><i></i></div><span></span>';$('fp').appendChild(d);fpRows.push(d)});
+
+// canvases
+var rc=$('room'),rx=rc.getContext('2d'),gc=$('gr'),gx=gc.getContext('2d'),oc=$('oled'),ox=oc.getContext('2d');
+var RW,RH,GW,GH,dpr;
+function size(){dpr=Math.min(devicePixelRatio||1,2);[[rc,'RW','RH'],[gc,'GW','GH']].forEach(function(a){var r=a[0].getBoundingClientRect();a[0].width=r.width*dpr;a[0].height=r.height*dpr;a[0].getContext('2d').setTransform(dpr,0,0,dpr,0,0)});var r1=rc.getBoundingClientRect(),r2=gc.getBoundingClientRect();RW=r1.width;RH=r1.height;GW=r2.width;GH=r2.height}
+addEventListener('resize',size);size();
+
+var P=[];
+function addP(){P.push({x:RW*.04,y:RH*.15+Math.random()*RH*.55,vx:.6+Math.random()*.6,vy:0,z:.4+Math.random()*.6,ph:Math.random()*6})}
+var angle=0,last=performance.now(),PX=function(){return{x:RW-90,y:RH-95}};
+
+function step(dt){ // dt real sec
+  var sim=dt*(+$('spd').value)/6; // sim minutes (6 = 1 min/s)
+  var ext=+$('ext').value,rh=+$('rh').value;
+  S.t+=sim;
+  if(S.warm>0)S.warm=Math.max(0,S.warm-dt);
+  // sensor
+  var fr=f(rh);S.rawP=S.C*fr;
+  var cal=S.rawP/fr;
+  var tau=2,al=1-Math.exp(-sim/tau);S.ema+=al*(cal-S.ema);
+  // alpha-beta trend filter
+  var pe=S.est+S.rate*sim;var res=cal-pe;S.est=pe+.4*res;S.rate+=.1*res/Math.max(sim,.01)*Math.min(sim,1);
+  // fan target
+  var tg;if(S.warm>0)tg=10;else if(mode=='AUTO')tg=curve(S.ema);else if(mode=='SLEEP')tg=10;else if(mode=='MED')tg=50;else if(mode=='HIGH')tg=75;else{tg=100;turboT+=sim;if(turboT>=15)setMode('AUTO')}
+  S.tg=tg;
+  var d=tg-S.fan,rate=Math.min(Math.abs(d),(8+Math.abs(d)*.8)*sim);S.fan+=Math.sign(d)*rate;
+  angle+=S.fan*dt*.5;
+  var cadr=400*Math.pow(S.fan/100,1.05);S.cadr=cadr;
+  // room physics (per hour -> per minute)
+  var V=60,leak=.35,eta=.97;
+  var dC=(ext-S.C)*leak/60-S.C*cadr*eta/V/60;
+  S.C=Math.max(0,S.C+dC*sim);
+  S.hepaH+=sim/60*(S.fan/100);
+  S.dose24+=cal*.41*.6*sim/60;
+  S.acc+=sim;
+  while(S.acc>=1){S.acc-=1;S.hist.push(cal);if(S.hist.length>60)S.hist.shift()}
+  S.cal=cal;S.fr=fr;
+}
+
+function drawRoom(){
+  var h=Math.min(S.C/150,1);
+  rx.fillStyle='#e9efec';rx.fillRect(0,0,RW,RH);
+  var g=rx.createLinearGradient(0,0,0,RH);g.addColorStop(0,'rgb('+(214-h*40|0)+','+(232-h*60|0)+','+(236-h*100|0)+')');g.addColorStop(1,'rgb('+(228-h*30|0)+','+(236-h*50|0)+','+(236-h*80|0)+')');
+  rx.fillStyle=g;rx.fillRect(0,0,RW,RH);
+  rx.fillStyle='#c8b79a';rx.fillRect(0,RH-30,RW,30);
+  // window
+  rx.fillStyle='rgba(120,170,210,.55)';rx.fillRect(8,RH*.12,10,RH*.6);
+  rx.fillStyle='#355';rx.font='12px Prompt,sans-serif';rx.fillText('ลมจากภายนอก →',24,RH*.12-6);
+  // desk + student
+  rx.fillStyle='#8a6f4d';rx.fillRect(RW*.35,RH-72,130,10);rx.fillRect(RW*.35+10,RH-62,8,34);rx.fillRect(RW*.35+112,RH-62,8,34);
+  // purifier
+  var p=PX();rx.fillStyle='#f5f6f2';rx.strokeStyle='#445';rx.lineWidth=2;
+  rx.beginPath();rx.roundRect(p.x-34,p.y-10,68,100,10);rx.fill();rx.stroke();
+  rx.fillStyle='#223';rx.beginPath();rx.arc(p.x,p.y+20,22,0,6.28);rx.fill();
+  rx.save();rx.translate(p.x,p.y+20);rx.rotate(angle);rx.fillStyle='#8fe0cf';
+  for(var i=0;i<5;i++){rx.rotate(1.2566);rx.beginPath();rx.ellipse(10,0,10,4,0,0,6.28);rx.fill()}rx.restore();
+  var c=cat(S.cal);rx.fillStyle=c[0];rx.beginPath();rx.arc(p.x,p.y+68,6,0,6.28);rx.fill();
+  // particles
+  var target=Math.min(Math.round(S.C*4),900),pu=p;
+  for(var k=0;k<3&&P.length<target;k++)addP();
+  if(P.length>target){var n=Math.min(P.length-target,3);for(var q=0;q<n;q++){var bi=0,bd=1e9;for(var s=0;s<6;s++){var j=Math.floor(Math.random()*P.length),dd=Math.hypot(P[j].x-pu.x,P[j].y-pu.y);if(dd<bd){bd=dd;bi=j}}P.splice(bi,1)}}
+  var pull=S.fan/100;
+  for(var a=0;a<P.length;a++){var e=P[a];
+    e.ph+=.03;e.vx+=((.5+e.z*.5)-e.vx)*.02+(Math.random()-.5)*.07;e.vy+=(Math.sin(e.ph)*.08-e.vy)*.05+(Math.random()-.5)*.05;
+    var dx=pu.x-e.x,dy=pu.y+20-e.y,dist=Math.hypot(dx,dy);if(dist<260){var ff=(1-dist/260)*pull*.9;e.vx+=dx/dist*ff;e.vy+=dy/dist*ff}
+    if(!paused){e.x+=e.vx;e.y+=e.vy}
+    if(e.x>RW+5)e.x=-4;if(e.y<0)e.y=RH-30;if(e.y>RH-30)e.y=2;
+    rx.globalAlpha=.3+e.z*.5;rx.fillStyle='#5a4631';rx.beginPath();rx.arc(e.x,e.y,.9+e.z*1.8,0,6.28);rx.fill()}
+  rx.globalAlpha=1;
+  rx.fillStyle='rgba(180,150,100,'+(h*.22)+')';rx.fillRect(0,0,RW,RH);
+  rx.fillStyle='#233';rx.font='600 13px Prompt,sans-serif';rx.fillText('ฝุ่นในห้อง '+S.C.toFixed(0)+' µg/ลบ.ม.  |  อนุภาค '+P.length,RW*.35,RH-6);
+}
+var paused=reduce;
+
+function drawOled(){
+  ox.fillStyle='#000';ox.fillRect(0,0,128,64);ox.fillStyle='#7fe8ff';ox.font='8px monospace';
+  if(S.warm>0){ox.fillText('[WARMUP] '+Math.ceil(S.warm)+'s',2,9)}else ox.fillText('AIR HERO  '+mode,2,9);
+  ox.font='bold 20px monospace';ox.fillText(S.ema.toFixed(0),2,32);ox.font='8px monospace';ox.fillText('PM2.5',2,42);ox.fillText('AQI '+aqi(S.ema),2,52);
+  ox.fillText('FAN '+S.fan.toFixed(0)+'%',2,62);
+  ox.save();ox.translate(100,34);ox.rotate(angle);for(var i=0;i<4;i++){ox.rotate(1.5708);ox.fillRect(2,-2,18,4)}ox.restore();
+  ox.fillText('HEPA '+Math.max(0,100-S.hepaH/20).toFixed(0)+'%',78,62);
+}
+
+function drawGraph(){
+  var H=S.hist;gx.clearRect(0,0,GW,GH);var padL=34,padB=18,w=GW-padL-6,h=GH-padB-6;
+  var mx=Math.max(60,Math.max.apply(null,H.concat([0]))*1.15);
+  var cs=getComputedStyle(document.body),mut=cs.getPropertyValue('--mut')||'#888',ac=cs.getPropertyValue('--acc')||'#0a8',ln=cs.getPropertyValue('--line')||'#ccc';
+  gx.font='11px Prompt,sans-serif';gx.fillStyle=mut;gx.strokeStyle=ln;gx.lineWidth=1;
+  [[15,'#3db4e8'],[37.5,'#f08a2c']].forEach(function(t){var y=6+h-(t[0]/mx)*h;gx.strokeStyle=t[1];gx.setLineDash([4,4]);gx.beginPath();gx.moveTo(padL,y);gx.lineTo(padL+w,y);gx.stroke();gx.setLineDash([]);gx.fillStyle=mut;gx.fillText(t[0],2,y+4)});
+  if(H.length<2){return}
+  var X=function(i){return padL+i/59*w},Y=function(v){return 6+h-(v/mx)*h};
+  gx.beginPath();gx.moveTo(X(0),Y(H[0]));
+  for(var i=1;i<H.length;i++){var cx=(X(i-1)+X(i))/2;gx.quadraticCurveTo(X(i-1),Y(H[i-1]),cx,(Y(H[i-1])+Y(H[i]))/2)}
+  gx.lineTo(X(H.length-1),Y(H[H.length-1]));gx.strokeStyle=ac;gx.lineWidth=2;gx.stroke();
+  gx.lineTo(X(H.length-1),6+h);gx.lineTo(X(0),6+h);gx.closePath();var gr=gx.createLinearGradient(0,0,0,GH);gr.addColorStop(0,'rgba(15,160,135,.35)');gr.addColorStop(1,'rgba(15,160,135,0)');gx.fillStyle=gr;gx.fill();
+  var mn=Math.min.apply(null,H),mxv=Math.max.apply(null,H),av=H.reduce(function(a,b){return a+b},0)/H.length;
+  $('gst').textContent='เฉลี่ย '+av.toFixed(1)+'  ต่ำสุด '+mn.toFixed(1)+'  สูงสุด '+mxv.toFixed(1)+' µg/ลบ.ม.  (เส้นประฟ้า 15 = เกณฑ์ปลอดภัย, ส้ม 37.5 = เกณฑ์ คพ.)';
+}
+
+function softmax(){
+  var r1=SRC[srcI][1]+(Math.random()-.5)*.04,r2=SRC[srcI][2]+(Math.random()-.5)*.04,gas=SRC[srcI][3]+(Math.random()-.5)*8;
+  var sc=SRC.map(function(s){var d=Math.pow((r1-s[1])/.08,2)+Math.pow((r2-s[2])/.1,2)+Math.pow((gas-s[3])/35,2);return -d});
+  var m=Math.max.apply(null,sc),ex=sc.map(function(v){return Math.exp(v-m)}),sm=ex.reduce(function(a,b){return a+b},0);
+  ex.forEach(function(v,i){var p=v/sm;fpRows[i].querySelector('i').style.width=(p*100)+'%';fpRows[i].lastChild.textContent=(p*100).toFixed(0)+'%'});
+}
+
+function readouts(){
+  var rh=+$('rh').value,c=cat(S.cal);
+  $('extv').textContent=$('ext').value+' µg/ลบ.ม.';$('rhv').textContent=rh+'%';$('spdv').textContent=(+$('spd').value/6).toFixed(1)+' นาทีจำลอง/วินาที';
+  $('cal').textContent=S.cal.toFixed(1);$('raw').textContent=S.rawP.toFixed(1)+' (ผิดพลาด +'+((S.fr-1)*100).toFixed(0)+'%)';$('fr').textContent=S.fr.toFixed(2);
+  $('aqi').innerHTML='<span style="color:'+c[0]+'">●</span> '+aqi(S.cal)+' '+c[1];
+  var f30=Math.max(0,S.est+S.rate*30),f60=Math.max(0,S.est+S.rate*60);$('fc').textContent=f30.toFixed(0)+' / '+f60.toFixed(0);$('rate').textContent=(S.rate*60).toFixed(1)+' µg/ลบ.ม./ชม.';
+  var dh=S.cal*.41*.6;$('dose').textContent=dh.toFixed(1)+' / '+(dh*24).toFixed(0)+' µg';
+  $('cig').textContent=(S.cal/22).toFixed(2)+' มวน';
+  $('muc').textContent=S.cal<25?'ปกติ':S.cal<75?'เริ่มชะลอตัว':'ทำงานหนักเกินพิกัด';
+  $('ftg').textContent=(S.tg||0).toFixed(0)+'%'+(S.warm>0?' [WARMUP]':'');$('fact').textContent=S.fan.toFixed(0)+'%';$('cadr').textContent=(S.cadr||0).toFixed(0)+' ลบ.ม./ชม.';
+  $('hl').textContent=Math.max(0,100-S.hepaH/20).toFixed(1)+'%  ('+S.hepaH.toFixed(2)+'/2000 ชม.)';
+}
+
+var ft=0;
+function loop(now){
+  var dt=Math.min((now-last)/1000,.05);last=now;
+  step(dt);drawRoom();drawOled();ft+=dt;if(ft>.2){ft=0;drawGraph();softmax();readouts()}
+  requestAnimationFrame(loop);
+}
+for(var i=0;i<400;i++)addP();
+requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
